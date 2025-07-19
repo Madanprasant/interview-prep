@@ -708,6 +708,291 @@ Make sure the questions are relevant to ${level} level and cover the topics: ${t
   }
 });
 
+// Generate topic-specific questions
+router.post('/generate-topic-questions', authenticateToken, async (req, res) => {
+  try {
+    const { course, topic, count = 5 } = req.body;
+
+    if (!course || !topic) {
+      return res.status(400).json({ error: 'Course and topic are required' });
+    }
+
+    // Check OpenAI API key
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({ 
+        error: 'OpenAI API key not configured',
+        questions: generateFallbackTopicQuestions(course, topic, count)
+      });
+    }
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+
+    const prompt = `Generate ${count} multiple choice interview questions for the topic "${topic}" in the course "${course}". 
+    
+    Requirements:
+    - Each question should be relevant to the specific topic
+    - Include 4 options (A, B, C, D) for each question
+    - Provide the correct answer (A, B, C, or D)
+    - Include a brief explanation for the correct answer
+    - Questions should be at intermediate to advanced level
+    - Focus on practical knowledge and real-world scenarios
+    
+    Return the response as a JSON array with this exact format:
+    [
+      {
+        "id": 1,
+        "question": "Question text here?",
+        "options": {
+          "A": "Option A text",
+          "B": "Option B text", 
+          "C": "Option C text",
+          "D": "Option D text"
+        },
+        "correctAnswer": "A",
+        "explanation": "Explanation of why this answer is correct"
+      }
+    ]`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert technical interviewer. Generate high-quality, practical interview questions."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 2000
+    });
+
+    const responseText = completion.choices[0].message.content;
+    
+    // Try to parse the JSON response
+    let questions;
+    try {
+      questions = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('Failed to parse OpenAI response:', parseError);
+      console.log('Raw response:', responseText);
+      
+      // Fallback to generated questions
+      questions = generateFallbackTopicQuestions(course, topic, count);
+    }
+
+    // Validate questions structure
+    if (!Array.isArray(questions) || questions.length === 0) {
+      questions = generateFallbackTopicQuestions(course, topic, count);
+    }
+
+    res.json({ questions });
+
+  } catch (error) {
+    console.error('Error generating topic questions:', error);
+    
+    // Return fallback questions if OpenAI fails
+    const { course, topic, count = 5 } = req.body;
+    const fallbackQuestions = generateFallbackTopicQuestions(course, topic, count);
+    
+    res.json({ 
+      questions: fallbackQuestions,
+      error: 'Using fallback questions due to API error'
+    });
+  }
+});
+
+// Helper function to generate fallback topic questions
+function generateFallbackTopicQuestions(course, topic, count) {
+  const fallbackQuestions = {
+    'React': {
+      'React Hooks (useState, useEffect, useContext)': [
+        {
+          id: 1,
+          question: "What is the purpose of the 'useState' hook in React?",
+          options: {
+            "A": "To manage component lifecycle",
+            "B": "To add state to functional components",
+            "C": "To handle side effects",
+            "D": "To optimize performance"
+          },
+          correctAnswer: "B",
+          explanation: "useState is a React Hook that allows you to add state to functional components."
+        },
+        {
+          id: 2,
+          question: "What is the purpose of useEffect hook?",
+          options: {
+            "A": "To manage state",
+            "B": "To handle side effects in functional components",
+            "C": "To optimize performance",
+            "D": "To create refs"
+          },
+          correctAnswer: "B",
+          explanation: "useEffect is used to perform side effects in functional components."
+        },
+        {
+          id: 3,
+          question: "What is useContext hook used for?",
+          options: {
+            "A": "To manage local state",
+            "B": "To consume context values",
+            "C": "To handle side effects",
+            "D": "To create refs"
+          },
+          correctAnswer: "B",
+          explanation: "useContext is used to consume values from React Context."
+        }
+      ],
+      'Component Lifecycle': [
+        {
+          id: 1,
+          question: "What is the correct order of React component lifecycle methods?",
+          options: {
+            "A": "constructor, render, componentDidMount, componentDidUpdate",
+            "B": "render, constructor, componentDidMount, componentDidUpdate",
+            "C": "constructor, componentDidMount, render, componentDidUpdate",
+            "D": "componentDidMount, constructor, render, componentDidUpdate"
+          },
+          correctAnswer: "A",
+          explanation: "Constructor runs first, then render, then componentDidMount after mounting."
+        }
+      ]
+    },
+    'JavaScript': {
+      'Variables and Data Types': [
+        {
+          id: 1,
+          question: "What is the difference between 'let', 'const', and 'var'?",
+          options: {
+            "A": "There is no difference",
+            "B": "let and const are block-scoped, var is function-scoped",
+            "C": "var is the newest syntax",
+            "D": "const can be reassigned"
+          },
+          correctAnswer: "B",
+          explanation: "let and const are block-scoped while var is function-scoped."
+        },
+        {
+          id: 2,
+          question: "Which data type is used for whole numbers in JavaScript?",
+          options: {
+            "A": "float",
+            "B": "int",
+            "C": "number",
+            "D": "integer"
+          },
+          correctAnswer: "C",
+          explanation: "JavaScript uses 'number' type for all numbers, including integers."
+        }
+      ],
+      'Closures and Hoisting': [
+        {
+          id: 1,
+          question: "What is a closure in JavaScript?",
+          options: {
+            "A": "A way to close browser tabs",
+            "B": "A function that has access to variables in its outer scope",
+            "C": "A method to close database connections",
+            "D": "A CSS property"
+          },
+          correctAnswer: "B",
+          explanation: "A closure is a function that has access to variables in its outer (enclosing) scope."
+        }
+      ]
+    },
+    'Node.js': {
+      'Express.js Framework': [
+        {
+          id: 1,
+          question: "What is Express.js?",
+          options: {
+            "A": "A database",
+            "B": "A web application framework for Node.js",
+            "C": "A CSS framework",
+            "D": "A JavaScript library"
+          },
+          correctAnswer: "B",
+          explanation: "Express.js is a minimal and flexible Node.js web application framework."
+        }
+      ],
+      'Middleware and Routing': [
+        {
+          id: 1,
+          question: "What is middleware in Express.js?",
+          options: {
+            "A": "A database table",
+            "B": "Functions that have access to request and response objects",
+            "C": "A CSS file",
+            "D": "A JavaScript variable"
+          },
+          correctAnswer: "B",
+          explanation: "Middleware functions are functions that have access to the request and response objects."
+        }
+      ]
+    },
+    'Database': {
+      'SQL Fundamentals': [
+        {
+          id: 1,
+          question: "What is SQL?",
+          options: {
+            "A": "A programming language",
+            "B": "Structured Query Language",
+            "C": "A CSS framework",
+            "D": "A JavaScript library"
+          },
+          correctAnswer: "B",
+          explanation: "SQL (Structured Query Language) is a standard language for storing, manipulating, and retrieving data in databases."
+        }
+      ],
+      'MongoDB NoSQL Database': [
+        {
+          id: 1,
+          question: "What is MongoDB?",
+          options: {
+            "A": "A CSS framework",
+            "B": "A NoSQL document database",
+            "C": "A JavaScript library",
+            "D": "A web server"
+          },
+          correctAnswer: "B",
+          explanation: "MongoDB is a NoSQL document database that stores data in flexible, JSON-like documents."
+        }
+      ]
+    }
+  };
+
+  // Return specific questions for the course and topic, or generate generic ones
+  const specificQuestions = fallbackQuestions[course]?.[topic];
+  if (specificQuestions) {
+    return specificQuestions.slice(0, count);
+  }
+
+  // Generate generic questions if no specific ones exist
+  const genericQuestions = [];
+  for (let i = 1; i <= count; i++) {
+    genericQuestions.push({
+      id: i,
+      question: `Sample question ${i} for ${topic} in ${course}`,
+      options: {
+        "A": "Option A",
+        "B": "Option B",
+        "C": "Option C",
+        "D": "Option D"
+      },
+      correctAnswer: "A",
+      explanation: "This is a sample question for practice."
+    });
+  }
+
+  return genericQuestions;
+}
+
 // Health check endpoint
 router.get('/health', (req, res) => {
   res.json({
